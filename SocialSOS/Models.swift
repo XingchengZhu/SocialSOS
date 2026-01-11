@@ -5,7 +5,7 @@
 //  Created by zhuxingcheng on 2026/1/11.
 //
 
-import Foundation
+import SwiftUI // <--- 关键修复：引入 SwiftUI 框架，解决 ObservableObject 报错
 
 // App 的全局运行状态
 enum AppState {
