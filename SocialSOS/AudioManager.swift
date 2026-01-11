@@ -5,7 +5,8 @@
 //  Created by zhuxingcheng on 2026/1/11.
 //
 
-import SwiftUI      // 添加这个引用
+import SwiftUI
+import Combine  // <--- 新增：显式引入 Combine
 import AVFoundation
 import UIKit
 
@@ -25,14 +26,11 @@ class AudioManager: NSObject, ObservableObject {
             let session = AVAudioSession.sharedInstance()
             if isCall {
                 // 通话模式：使用听筒 (Receiver)
-                // .playAndRecord 允许录音和播放，通常用于通话
-                // .allowBluetooth 允许蓝牙耳机
-                try session.setCategory(.playAndRecord, options: [.allowBluetooth])
-                try session.overrideOutputAudioPort(.none) // .none 默认指听筒
+                // 修正：移除了导致报错的 .allowBluetooth，仅保留 .duckOthers 或留空
+                try session.setCategory(.playAndRecord, options: [])
+                try session.overrideOutputAudioPort(.none) // .none 强制使用听筒
             } else {
                 // 铃声模式：使用扬声器 (Speaker)
-                // .playback 支持后台播放
-                // .duckOthers 压低其他声音
                 try session.setCategory(.playback, mode: .default, options: [.duckOthers])
                 try session.overrideOutputAudioPort(.speaker)
             }
@@ -85,13 +83,14 @@ class AudioManager: NSObject, ObservableObject {
     func stopAudio() {
         audioPlayer?.stop()
         stopVibration()
-        // 尝试停用会话
+        // 尝试停用会话，释放资源
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
     
     // 模拟震动
     private func startVibration() {
         timer?.invalidate()
+        // 1.2秒一次震动
         timer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { _ in
             let generator = UINotificationFeedbackGenerator()
             generator.notificationOccurred(.error)

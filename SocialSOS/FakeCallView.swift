@@ -7,17 +7,30 @@
 
 import SwiftUI
 
+// 1. 定义一个简单的结构体，遵循 Hashable 协议
+struct CallActionItem: Hashable {
+    let icon: String
+    let label: String
+}
+
 struct FakeCallView: View {
     @EnvironmentObject var config: AppConfig
     @State private var callDuration: TimeInterval = 0
     @State private var timer: Timer?
     
-    // 获取屏幕尺寸，用于适配布局
-    let screenHeight = UIScreen.main.bounds.height
+    // 2. 修改数据源：将原来的元组数组改为结构体数组
+    let callActions = [
+        CallActionItem(icon: "mic.slash.fill", label: "静音"),
+        CallActionItem(icon: "circle.grid.3x3.fill", label: "键盘"),
+        CallActionItem(icon: "speaker.wave.3.fill", label: "免提"),
+        CallActionItem(icon: "plus", label: "添加通话"),
+        CallActionItem(icon: "video.fill", label: "FaceTime"),
+        CallActionItem(icon: "person.crop.circle", label: "通讯录")
+    ]
     
     var body: some View {
         ZStack {
-            // 背景：可以是高斯模糊的壁纸
+            // 背景
             Color.black.ignoresSafeArea()
                 .overlay(
                     LinearGradient(gradient: Gradient(colors: [.gray.opacity(0.3), .black]), startPoint: .top, endPoint: .bottom)
@@ -36,6 +49,13 @@ struct FakeCallView: View {
             if config.currentState == .ringing {
                 AudioManager.shared.playRingtone()
             }
+            // 开启距离传感器 (贴耳黑屏)
+            UIDevice.current.isProximityMonitoringEnabled = true
+        }
+        .onDisappear {
+            // 关闭距离传感器
+            UIDevice.current.isProximityMonitoringEnabled = false
+            stopCall()
         }
     }
     
@@ -44,7 +64,7 @@ struct FakeCallView: View {
         VStack(spacing: 20) {
             // 顶部信息
             VStack(spacing: 8) {
-                Image(systemName: "person.circle.fill") // 这里的图片应该换成真实头像
+                Image(systemName: "person.circle.fill")
                     .resizable()
                     .frame(width: 80, height: 80)
                     .foregroundColor(.gray)
@@ -61,9 +81,9 @@ struct FakeCallView: View {
             
             Spacer()
             
-            // 底部接听/挂断按钮区域
+            // 底部接听/挂断按钮
             HStack(spacing: 60) {
-                // 拒绝按钮
+                // 拒绝
                 VStack(spacing: 8) {
                     Button(action: {
                         stopCall()
@@ -75,11 +95,10 @@ struct FakeCallView: View {
                             .foregroundColor(.white)
                             .clipShape(Circle())
                     }
-                    Text("拒绝")
-                        .foregroundColor(.white)
+                    Text("拒绝").foregroundColor(.white)
                 }
                 
-                // 接听按钮
+                // 接听
                 VStack(spacing: 8) {
                     Button(action: {
                         answerCall()
@@ -91,8 +110,7 @@ struct FakeCallView: View {
                             .foregroundColor(.white)
                             .clipShape(Circle())
                     }
-                    Text("接听")
-                        .foregroundColor(.white)
+                    Text("接听").foregroundColor(.white)
                 }
             }
             .padding(.bottom, 80)
@@ -116,8 +134,9 @@ struct FakeCallView: View {
             
             Spacer()
             
-            // 功能网格 (静音、键盘等 - 仅展示，无功能)
+            // 功能网格
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 30) {
+                // 3. 这里的 ForEach 现在可以正常工作了，因为 CallActionItem 是 Hashable 的
                 ForEach(callActions, id: \.self) { item in
                     VStack(spacing: 5) {
                         Image(systemName: item.icon)
@@ -175,20 +194,9 @@ struct FakeCallView: View {
         }
     }
     
-    // 时间格式化 00:00
     func timeString(from timeInterval: TimeInterval) -> String {
         let minutes = Int(timeInterval) / 60
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
-    
-    // 网格按钮数据
-    let callActions = [
-        (icon: "mic.slash.fill", label: "静音"),
-        (icon: "circle.grid.3x3.fill", label: "键盘"),
-        (icon: "speaker.wave.3.fill", label: "免提"),
-        (icon: "plus", label: "添加通话"),
-        (icon: "video.fill", label: "FaceTime"),
-        (icon: "person.crop.circle", label: "通讯录")
-    ]
 }

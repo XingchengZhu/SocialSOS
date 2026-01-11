@@ -5,7 +5,8 @@
 //  Created by zhuxingcheng on 2026/1/11.
 //
 
-import SwiftUI // <--- 关键修复：引入 SwiftUI 框架，解决 ObservableObject 报错
+import SwiftUI
+import Combine  // <--- 新增：显式引入 Combine 框架，彻底解决报错
 
 // App 的全局运行状态
 enum AppState {
