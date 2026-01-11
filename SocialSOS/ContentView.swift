@@ -10,21 +10,15 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var config: AppConfig
     
-    // 记录倒计时参数
-    @State private var countdownTarget: Date = Date()
-    @State private var countdownDuration: Double = 0
-    
     var body: some View {
         ZStack {
+            // 背景色控制
+            Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+            
             switch config.currentState {
-            case .dashboard:
-                DashboardView(
-                    onStartForeground: { duration in
-                        startCountdown(duration: duration)
-                    }
-                )
-            case .countingDown:
-                CountingDownView(targetTime: countdownTarget, totalDuration: countdownDuration)
+            case .dashboard, .countingDown:
+                // 将倒计时状态也合并在 DashboardView 里处理，实现平滑过渡
+                DashboardView()
             case .ringing, .connected:
                 FakeCallView()
             case .fakeShutdown:
@@ -33,251 +27,287 @@ struct ContentView: View {
                 SilentTextView()
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: config.currentState)
-    }
-    
-    func startCountdown(duration: Double) {
-        countdownDuration = duration
-        countdownTarget = Date().addingTimeInterval(duration)
-        config.currentState = .countingDown
-        
-        // 双重保险：Dispatch 作为兜底，防止 UI 层计时器误差
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            if config.currentState == .countingDown {
-                config.currentState = .ringing
-            }
-        }
+        .animation(.easeInOut, value: config.currentState)
     }
 }
 
-// 美化版 Dashboard
 struct DashboardView: View {
     @EnvironmentObject var config: AppConfig
-    @State private var showSettings = false
+    @Environment(\.scenePhase) var scenePhase // 监听 App 前后台状态
     
-    var onStartForeground: (Double) -> Void
+    // 倒计时相关状态
+    @State private var timeRemaining: TimeInterval = 0
+    @State private var totalDuration: TimeInterval = 10.0 // 默认倒计时时长
+    @State private var timer: Timer?
+    @State private var targetDate: Date? // 用于后台计时校准
     
-    enum TriggerMode { case interval, specificTime }
-    @State private var triggerMode: TriggerMode = .interval
-    @State private var customSeconds: Int = 10
-    @State private var targetDate = Date().addingTimeInterval(60)
+    // 动画相关
+    @State private var isCountingDown = false
+    @State private var showSettings = false // 控制设置页
     
     var body: some View {
         NavigationView {
             ZStack {
-                Color(UIColor.systemGroupedBackground).ignoresSafeArea()
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        
-                        // Header
-                        HStack {
+                // 1. 正常仪表盘界面
+                List {
+                    // 头部信息
+                    Section {
+                        HStack(spacing: 15) {
+                            Image(systemName: "person.crop.circle.fill") // 使用系统图标更稳妥
+                                .resizable()
+                                .foregroundColor(.gray)
+                                .scaledToFill()
+                                .frame(width: 60, height: 60)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.gray.opacity(0.3), lineWidth: 1))
+                            
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Social SOS")
-                                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                                    .foregroundColor(.primary)
-                                Text("安全离场助手")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                                Text("当前伪装对象")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                // 修正点：使用 config.contact (Models.swift中的定义)
+                                Text(config.contact.name)
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
                             }
                             Spacer()
+                            
+                            // 点击这里也可以去设置
                             Button(action: { showSettings = true }) {
-                                Image(systemName: "gearshape.fill")
+                                Image(systemName: "pencil.circle.fill")
                                     .font(.title2)
-                                    .foregroundColor(.primary)
-                                    .padding(10)
-                                    .background(Color.gray.opacity(0.15))
-                                    .clipShape(Circle())
-                            }
-                            .sheet(isPresented: $showSettings) { SettingsView() }
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 10)
-                        
-                        // 核心控制卡片
-                        VStack(spacing: 0) {
-                            HStack {
-                                Label("来电模拟", systemImage: "phone.badge.waveform.fill")
-                                    .font(.headline)
-                                Spacer()
-                                Text(config.contact.name)
-                                    .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.green.opacity(0.2))
-                                    .foregroundColor(.green)
-                                    .cornerRadius(6)
-                            }
-                            .padding()
-                            
-                            Divider()
-                            
-                            Toggle(isOn: $config.isChainCallEnabled) {
-                                Text("连环夺命 Call")
-                                    .font(.subheadline)
-                                    .foregroundColor(.primary)
-                            }
-                            .padding()
-                            .toggleStyle(SwitchToggleStyle(tint: .red))
-                            
-                            Divider().padding(.leading)
-                            
-                            Picker("", selection: $triggerMode) {
-                                Text("倒计时").tag(TriggerMode.interval)
-                                Text("定时触发").tag(TriggerMode.specificTime)
-                            }
-                            .pickerStyle(SegmentedPickerStyle())
-                            .padding()
-                            
-                            if triggerMode == .interval {
-                                intervalControl
-                            } else {
-                                timePickerControl
-                            }
-                            
-                            Divider()
-                            
-                            HStack(spacing: 0) {
-                                Button(action: {
-                                    let delay = calculateDelay()
-                                    if delay > 0 { onStartForeground(delay) }
-                                }) {
-                                    HStack {
-                                        Image(systemName: "play.fill")
-                                        Text("前台等待")
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
                                     .foregroundColor(.blue)
-                                }
-                                
-                                Divider().frame(height: 30)
-                                
-                                Button(action: { startBackgroundSchedule() }) {
-                                    HStack {
-                                        Image(systemName: "lock.fill")
-                                        Text("锁屏触发")
-                                    }
-                                    .fontWeight(.semibold)
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .foregroundColor(.green)
-                                }
-                            }
-                            .background(Color.gray.opacity(0.05))
-                        }
-                        .background(Color(UIColor.secondarySystemGroupedBackground))
-                        .cornerRadius(18)
-                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
-                        .padding(.horizontal)
-                        
-                        // 工具网格
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                            Button(action: { config.currentState = .fakeShutdown }) {
-                                ToolCard(icon: "battery.0", title: "模拟关机", color: .red)
-                            }
-                            Button(action: { config.currentState = .silentText }) {
-                                ToolCard(icon: "text.bubble.fill", title: "静音弹幕", color: .indigo)
                             }
                         }
-                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                    } header: {
+                        Text("配置")
+                    }
+                    
+                    // 模拟来电触发区
+                    Section {
+                        Button(action: {
+                            startCountdown(duration: 10.0) // 10秒触发
+                        }) {
+                            ModernFeatureRow(
+                                icon: "phone.badge.plus",
+                                color: .green,
+                                title: "快速触发 (10s)",
+                                subtitle: "适合即兴脱身"
+                            )
+                        }
                         
-                        Spacer()
+                        Button(action: {
+                            startCountdown(duration: 30.0) // 30秒触发
+                        }) {
+                            ModernFeatureRow(
+                                icon: "timer",
+                                color: .orange,
+                                title: "延迟触发 (30s)",
+                                subtitle: "预设逃离时间"
+                            )
+                        }
+                        
+                        // 自定义时间触发 (保留功能)
+                        Button(action: {
+                            startCountdown(duration: 60.0)
+                        }) {
+                            ModernFeatureRow(
+                                icon: "clock.arrow.circlepath",
+                                color: .blue,
+                                title: "一分钟后 (60s)",
+                                subtitle: "从容整理物品"
+                            )
+                        }
+                    } header: {
+                        Text("模拟来电")
+                    }
+                    
+                    // 紧急伪装区
+                    Section {
+                        Button(action: {
+                            config.currentState = .fakeShutdown
+                        }) {
+                            ModernFeatureRow(
+                                icon: "power.circle.fill",
+                                color: .red,
+                                title: "模拟没电关机",
+                                subtitle: "点击屏幕闪烁红电量"
+                            )
+                        }
+                        
+                        Button(action: {
+                            config.currentState = .silentText
+                        }) {
+                            ModernFeatureRow(
+                                icon: "captions.bubble.fill",
+                                color: .purple,
+                                title: "静音弹幕",
+                                subtitle: "KTV/会议室专用"
+                            )
+                        }
+                    } header: {
+                        Text("紧急伪装")
+                    }
+                }
+                .listStyle(.insetGrouped) // 现代 iOS 风格
+                .navigationTitle("Social SOS")
+                // 添加设置入口
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: { showSettings = true }) {
+                            Image(systemName: "gearshape")
+                        }
+                    }
+                }
+                .sheet(isPresented: $showSettings) {
+                    SettingsView()
+                }
+                .blur(radius: isCountingDown ? 10 : 0) // 倒计时模糊背景
+                .disabled(isCountingDown)
+                
+                // 2. 倒计时浮层 (覆盖在上面)
+                if isCountingDown {
+                    // 全屏遮罩，点击取消
+                    Color.black.opacity(0.8)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            cancelCountdown()
+                        }
+                    
+                    VStack(spacing: 30) {
+                        Text("即将来电")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                        
+                        // 核心：倒计时显示逻辑
+                        Text(formatTime(timeRemaining))
+                            .font(.system(size: 80, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .contentTransition(.numericText(value: timeRemaining)) // iOS 16 数字滚动动画
+                        
+                        Button(action: {
+                            cancelCountdown()
+                        }) {
+                            Text("点击取消")
+                                .font(.subheadline)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(Capsule().stroke(Color.white.opacity(0.3)))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
                     }
                 }
             }
-            .navigationBarHidden(true)
-            .onAppear {
-                NotificationManager.shared.requestAuthorization()
-            }
         }
-    }
-    
-    var intervalControl: some View {
-        VStack(spacing: 15) {
-            Text("\(customSeconds) 秒")
-                .font(.system(size: 36, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-            Stepper("", value: $customSeconds, in: 5...3600, step: 5).labelsHidden()
-            HStack(spacing: 12) {
-                ForEach([10, 30, 60, 300], id: \.self) { sec in
-                    Button(action: { customSeconds = sec }) {
-                        Text("\(sec)s")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .frame(minWidth: 50)
-                            .padding(.vertical, 8)
-                            .background(customSeconds == sec ? Color.blue : Color.gray.opacity(0.1))
-                            .foregroundColor(customSeconds == sec ? .white : .primary)
-                            .cornerRadius(8)
+        // 监听前后台切换
+        .onChange(of: scenePhase) { newPhase in
+            if isCountingDown {
+                if newPhase == .background {
+                    // 切到后台：记录目标时间，发送通知
+                    print("App 进入后台，倒计时继续")
+                    NotificationManager.shared.scheduleCallNotification(
+                        after: timeRemaining,
+                        contactName: config.contact.name
+                    )
+                } else if newPhase == .active {
+                    // 切回前台：取消通知，校准时间
+                    NotificationManager.shared.cancelNotifications()
+                    if let target = targetDate {
+                        let remaining = target.timeIntervalSinceNow
+                        if remaining <= 0 {
+                            // 如果回来时已经超时，直接看来电
+                            triggerCall()
+                        } else {
+                            // 否则更新剩余时间
+                            timeRemaining = remaining
+                        }
                     }
                 }
             }
         }
-        .padding(.bottom, 20)
     }
     
-    var timePickerControl: some View {
-        VStack {
-            DatePicker("选择时刻", selection: $targetDate, displayedComponents: .hourAndMinute)
-                .datePickerStyle(WheelDatePickerStyle())
-                .labelsHidden()
-                .environment(\.locale, Locale(identifier: "zh_CN"))
-            Text(timeDifferenceString(target: targetDate))
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.bottom, 10)
+    // MARK: - Logic
+    
+    func startCountdown(duration: TimeInterval) {
+        // 设置状态
+        withAnimation {
+            isCountingDown = true
+            config.currentState = .countingDown
+        }
+        
+        // 初始化时间
+        timeRemaining = duration
+        totalDuration = duration
+        targetDate = Date().addingTimeInterval(duration)
+        
+        // 开始高频计时器 (0.1秒刷新一次以支持一位小数)
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            if timeRemaining > 0 {
+                timeRemaining -= 0.1
+            } else {
+                triggerCall()
+            }
         }
     }
     
-    func timeDifferenceString(target: Date) -> String {
-        let diff = target.timeIntervalSince(Date())
-        return diff <= 0 ? "时间已过" : "将在 \(Int(diff)/60)分 后响铃"
+    func cancelCountdown() {
+        timer?.invalidate()
+        NotificationManager.shared.cancelNotifications()
+        withAnimation {
+            isCountingDown = false
+            config.currentState = .dashboard
+        }
     }
     
-    func startBackgroundSchedule() {
-        let delay = calculateDelay()
-        guard delay > 0 else { return }
-        NotificationManager.shared.scheduleFakeCallNotification(
-            timeInterval: delay,
-            contactName: config.contact.name
-        )
+    func triggerCall() {
+        timer?.invalidate()
+        targetDate = nil
+        isCountingDown = false // 结束倒计时 UI
+        config.currentState = .ringing // 进入响铃
     }
     
-    func calculateDelay() -> TimeInterval {
-        if triggerMode == .interval { return Double(customSeconds) }
-        else {
-            var date = targetDate
-            if date < Date() { date = Calendar.current.date(byAdding: .day, value: 1, to: date)! }
-            return date.timeIntervalSince(Date())
+    // 你的需求：大于10秒显示整数，小于10秒显示一位小数
+    func formatTime(_ time: TimeInterval) -> String {
+        let t = max(0, time)
+        if t > 10.0 {
+            return String(format: "%.0f", ceil(t)) // 整数 (向上取整体验更好)
+        } else {
+            return String(format: "%.1f", t) // 一位小数
         }
     }
 }
 
-struct ToolCard: View {
+// 提取出来的漂亮的列表行组件
+struct ModernFeatureRow: View {
     let icon: String
-    let title: String
     let color: Color
+    let title: String
+    let subtitle: String
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundColor(color)
-                .padding(10)
-                .background(color.opacity(0.1))
-                .clipShape(Circle())
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.primary)
-            Text("点击立即触发")
-                .font(.caption2)
-                .foregroundColor(.secondary)
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(color.opacity(0.15))
+                    .frame(width: 40, height: 40)
+                Image(systemName: icon)
+                    .foregroundColor(color)
+                    .font(.system(size: 20))
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body)
+                    .foregroundColor(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.03), radius: 5, x: 0, y: 2)
+        .padding(.vertical, 4)
     }
 }

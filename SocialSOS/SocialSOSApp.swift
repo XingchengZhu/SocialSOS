@@ -11,13 +11,18 @@ import SwiftUI
 struct SocialSOSApp: App {
     @StateObject var config = AppConfig()
     
+    init() {
+        // App 启动时请求通知权限
+        NotificationManager.shared.requestPermission()
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(config)
-                .preferredColorScheme(.dark) // 强制深色模式，符合“隐秘”调性
+                .preferredColorScheme(.dark) // 保持深色模式
+                // 监听通知点击
                 .onReceive(NotificationManager.shared.triggerCallSubject) { _ in
-                    // 收到通知点击事件，无论当前在哪里，强制切到来电
                     config.currentState = .ringing
                 }
         }
